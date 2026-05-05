@@ -1,0 +1,101 @@
+name: Infra Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra-live/**'
+      - 'terraform-modules/**'
+      - '.github/workflows/infra.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    env:
+      TF_WORKING_DIR: infra-live/environments/dev
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Import AWS credentials from Vault
+        id: vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          method: jwt
+          path: jwt
+          role: github-terraform
+          exportToken: true
+          secrets: |
+            aws/creds/terraform-infra access_key | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-infra secret_key | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-infra security_token | AWS_SESSION_TOKEN
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+
+  terraform-apply:
+    name: Terraform Apply
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    environment: dev-apply
+
+    env:
+      TF_WORKING_DIR: infra-live/environments/dev
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Import AWS credentials from Vault
+        id: vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          method: jwt
+          path: jwt
+          role: github-terraform
+          exportToken: true
+          secrets: |
+            aws/creds/terraform-infra access_key | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-infra secret_key | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-infra security_token | AWS_SESSION_TOKEN
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
