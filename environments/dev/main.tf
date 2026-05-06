@@ -6,7 +6,7 @@ provider "aws" {
 # VPC Module
 ########################
 module "vpc" {
-  source       = "../../../terraform-modules/vpc"
+  source       = "git::https://github.com/mfasi7863/terraform-modules.git//vpc?ref=main"
   cluster_name = "my-eks-cluster"
 }
 
@@ -14,7 +14,7 @@ module "vpc" {
 # ECR Module
 ########################
 module "ecr" {
-  source    = "../../../terraform-modules/ecr"
+  source    = "git::https://github.com/mfasi7863/terraform-modules.git//ecr?ref=main"
   repo_name = "my-app"
 }
 
@@ -22,7 +22,7 @@ module "ecr" {
 # EKS Module
 ########################
 module "eks" {
-  source          = "../../../terraform-modules/eks"
+  source          = "git::https://github.com/mfasi7863/terraform-modules.git//eks?ref=main"
   cluster_name    = "my-eks-cluster"
 
   subnet_ids      = concat(module.vpc.public_subnets, module.vpc.private_subnets)
