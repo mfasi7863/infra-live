@@ -1,13 +1,7 @@
-variable "cluster_name" {
-  description = "EKS cluster name"
+variable "aws_region" {
+  description = "AWS region"
   type        = string
-  default     = "my-eks-cluster"
-}
-
-variable "repo_name" {
-  description = "ECR repository name"
-  type        = string
-  default     = "my-app"
+  default     = "ap-south-1"
 }
 
 variable "vpc_cidr" {
@@ -28,8 +22,8 @@ variable "private_subnets" {
   default     = ["10.0.3.0/24", "10.0.4.0/24"]
 }
 
-variable "aws_region" {
-  description = "AWS region"
+variable "cluster_name" {
+  description = "EKS cluster name used for VPC/subnet tags"
   type        = string
-  default     = "ap-south-1"
+  default     = "my-eks-cluster"
 }
