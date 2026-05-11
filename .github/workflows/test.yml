@@ -1,0 +1,37 @@
+name: Vault Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  vault-auth:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Vault
+        run: |
+          sudo apt update
+          sudo apt install -y unzip
+          curl -fsSL https://releases.hashicorp.com/vault/1.16.2/vault_1.16.2_linux_amd64.zip -o vault.zip
+          unzip vault.zip
+          sudo mv vault /usr/local/bin/
+
+      - name: Authenticate to Vault
+        env:
+          VAULT_ADDR: http://13.232.82.76:32000
+        run: |
+          export GITHUB_TOKEN=$(curl -s \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com/mfasi7863" \
+            | jq -r '.value')
+
+          vault write auth/jwt/login \
+            role="github-actions" \
+            jwt="$GITHUB_TOKEN"
