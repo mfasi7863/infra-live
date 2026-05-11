@@ -33,5 +33,5 @@ jobs:
             | jq -r '.value')
 
           vault write auth/jwt/login \
-            role="github-actions" \
+            role="terraform-role" \
             jwt="$GITHUB_TOKEN"
