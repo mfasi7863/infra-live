@@ -15,23 +15,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Vault
+      - name: Install Vault CLI
         run: |
-          sudo apt update
-          sudo apt install -y unzip
+          sudo apt-get update
+          sudo apt-get install -y unzip jq
           curl -fsSL https://releases.hashicorp.com/vault/1.16.2/vault_1.16.2_linux_amd64.zip -o vault.zip
           unzip vault.zip
-          sudo mv vault /usr/local/bin/
+          sudo mv vault /usr/local/bin/vault
+          vault --version
 
-      - name: Authenticate to Vault
+      - name: Authenticate to Vault using GitHub OIDC
         env:
-          VAULT_ADDR: http://13.232.82.76:30733
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
         run: |
-          export GITHUB_TOKEN=$(curl -s \
+          echo "Requesting GitHub OIDC token..."
+          GITHUB_TOKEN=$(curl -s \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com/mfasi7863" \
             | jq -r '.value')
 
-          vault write auth/jwt/login \
+          if [ -z "$GITHUB_TOKEN" ] || [ "$GITHUB_TOKEN" = "null" ]; then
+            echo "Failed to obtain GitHub OIDC token."
+            exit 1
+          fi
+
+          echo "Authenticating to Vault..."
+
+            RESPONSE=$(vault write -format=json auth/jwt/login \
             role="github-terraform" \
-            jwt="$GITHUB_TOKEN"
+            jwt="$GITHUB_TOKEN")
+
+          VAULT_TOKEN=$(echo "$RESPONSE" | jq -r '.auth.client_token')
+
+          if [ -z "$VAULT_TOKEN" ] || [ "$VAULT_TOKEN" = "null" ]; then
+            echo "Failed to authenticate to Vault: no client token returned."
+            exit 1
+          fi
+         
+          echo "Successfully authenticated to Vault and obtained a token (not shown in logs)."
