@@ -7,5 +7,5 @@ instance_types   = ["t3.medium"]
 desired_size     = 2
 min_size         = 1
 max_size         = 3
-vpc_state_bucket = "fasi-tf-state-bucket"
+vpc_state_bucket = "terraform-state-devops-ap-south-1"
 vpc_state_key    = "dev/vpc/terraform.tfstate"
