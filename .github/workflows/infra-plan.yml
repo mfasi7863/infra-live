@@ -46,12 +46,13 @@ jobs:
             run: ${{ needs.detect.outputs.run_eks }}
           - name: ecr
             run: ${{ needs.detect.outputs.run_ecr }}
-    if: matrix.run == 'true'
+    # ✅ job-level if removed — condition moved to each step below
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Get AWS creds from Vault
+        if: matrix.run == 'true'
         uses: hashicorp/vault-action@v3
         with:
           url: ${{ secrets.VAULT_ADDR }}
@@ -63,10 +64,12 @@ jobs:
             aws/creds/terraform-infra security_token | AWS_SESSION_TOKEN
 
       - uses: hashicorp/setup-terraform@v3
+        if: matrix.run == 'true'
         with:
           terraform_version: ${{ env.TF_VER }}
 
       - name: Init → Validate → Plan
+        if: matrix.run == 'true'
         working-directory: environments/dev/${{ matrix.name }}
         env:
           AWS_DEFAULT_REGION: ${{ env.REGION }}
@@ -85,6 +88,7 @@ jobs:
           echo "✅ [${{ matrix.name }}] Terraform Plan completed — artifact saved"
 
       - uses: actions/upload-artifact@v4
+        if: matrix.run == 'true'
         with:
           name: ${{ matrix.name }}-tfplan
           path: environments/dev/${{ matrix.name }}/tfplan
