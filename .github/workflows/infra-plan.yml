@@ -13,7 +13,7 @@ permissions:
 env:
   REGION:  ap-south-1
   BUCKET:  terraform-state-devops-ap-south-1
-  TF_VER:  1.9.8
+  TF_VER:  1.10.5
 
 jobs:
   # ── Detect which folders changed ──────────────────────────────
