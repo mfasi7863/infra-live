@@ -1,0 +1,56 @@
+name: infra-apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Component to apply"
+        required: true
+        type: choice
+        options:
+          - vpc
+          - eks
+          - ecr
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: dev-apply
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          method: jwt
+          role: github-terraform
+          secrets: |
+            aws/creds/terraform-infra access_key | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-infra secret_key | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-infra security_token | AWS_SESSION_TOKEN
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Set target directory and backend key
+        id: target
+        run: |
+          echo "dir=environments/dev/${{ github.event.inputs.component }}" >> $GITHUB_OUTPUT
+          echo "key=dev/${{ github.event.inputs.component }}/terraform.tfstate" >> $GITHUB_OUTPUT
+      - name: Terraform Init
+        working-directory: ${{ steps.target.outputs.dir }}
+        run: |
+          terraform init \
+            -backend-config="bucket=terraform-state-devops-ap-south-1" \
+            -backend-config="key=${{ steps.target.outputs.key }}" \
+            -backend-config="region=ap-south-1" \
+            -backend-config="use_lockfile=true"
+        env:
+          AWS_DEFAULT_REGION: ap-south-1
+      - name: Terraform Apply
+        working-directory: ${{ steps.target.outputs.dir }}
+        run: terraform apply -auto-approve
+        env:
+          AWS_DEFAULT_REGION: ap-south-1

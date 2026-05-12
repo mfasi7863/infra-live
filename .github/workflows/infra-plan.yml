@@ -1,0 +1,90 @@
+name: infra-plan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGION:  ap-south-1
+  BUCKET:  terraform-state-devops-ap-south-1
+  TF_VER:  1.9.8
+
+jobs:
+  # ── Detect which folders changed ──────────────────────────────
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      run_vpc: ${{ steps.detect.outputs.run_vpc }}
+      run_eks: ${{ steps.detect.outputs.run_eks }}
+      run_ecr: ${{ steps.detect.outputs.run_ecr }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        run: |
+          chmod +x scripts/changed-components.sh
+          BASE=$([[ "${{ github.event_name }}" == "pull_request" ]] && echo "origin/${{ github.base_ref }}" || echo "HEAD~1")
+          ./scripts/changed-components.sh $BASE HEAD
+
+  # ── Plan only changed components (runs in parallel) ───────────
+  plan:
+    needs: detect
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: vpc
+            run: ${{ needs.detect.outputs.run_vpc }}
+          - name: eks
+            run: ${{ needs.detect.outputs.run_eks }}
+          - name: ecr
+            run: ${{ needs.detect.outputs.run_ecr }}
+    if: matrix.run == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get AWS creds from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          method: jwt
+          role: github-terraform
+          secrets: |
+            aws/creds/terraform-infra access_key     | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-infra secret_key     | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-infra security_token | AWS_SESSION_TOKEN
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VER }}
+
+      - name: Init → Validate → Plan
+        working-directory: environments/dev/${{ matrix.name }}
+        env:
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.BUCKET }}" \
+            -backend-config="key=dev/${{ matrix.name }}/terraform.tfstate" \
+            -backend-config="region=${{ env.REGION }}" \
+            -backend-config="use_lockfile=true"
+          echo "✅ [${{ matrix.name }}] Terraform Init completed successfully"
+
+          terraform validate
+          echo "✅ [${{ matrix.name }}] Terraform Validate passed"
+
+          terraform plan -out=tfplan
+          echo "✅ [${{ matrix.name }}] Terraform Plan completed — artifact saved"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-tfplan
+          path: environments/dev/${{ matrix.name }}/tfplan
