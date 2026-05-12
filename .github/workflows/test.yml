@@ -25,7 +25,7 @@ jobs:
 
       - name: Authenticate to Vault
         env:
-          VAULT_ADDR: http://13.232.82.76:32000
+          VAULT_ADDR: http://13.232.82.76:30733
         run: |
           export GITHUB_TOKEN=$(curl -s \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
