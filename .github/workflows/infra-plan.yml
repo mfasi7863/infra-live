@@ -69,8 +69,8 @@ jobs:
           jwtGithubAudience: "https://github.com/mfasi7863"
           secrets: |
             aws/creds/terraform-role access_key     | AWS_ACCESS_KEY_ID ;
-            aws/creds/terraform-role secret_key     | AWS_SECRET_ACCESS_KEY 
-           # aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
+            aws/creds/terraform-role secret_key     | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
 
       - uses: hashicorp/setup-terraform@v3
         if: matrix.run == 'true'
