@@ -2,56 +2,213 @@ name: infra-apply
 
 on:
   workflow_dispatch:
-    inputs:
-      component:
-        description: "Component for apply"
-        required: true
-        type: choice
-        options:
-          - vpc
-          - eks
-          - ecr
 
 permissions:
   id-token: write
   contents: read
 
+env:
+  REGION: ap-south-1
+  BUCKET: terraform-state-devops-ap-south-1
+  TF_VER: 1.10.5   
+
 jobs:
-  apply:
+
+  # ─────────────────────────────────────────────────────────────────
+  # STEP 1: Check which plan artifacts exist from infra-plan
+  # ─────────────────────────────────────────────────────────────────
+  detect-plans:
+    name: "Detect Available Plan Artifacts"
     runs-on: ubuntu-latest
-    environment: dev-apply
+    outputs:
+      vpc_planned: ${{ steps.check.outputs.vpc }}
+      ecr_planned: ${{ steps.check.outputs.ecr }}
+      eks_planned: ${{ steps.check.outputs.eks }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/vault-action@v3
+      - name: Check which plan artifacts exist
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # List artifacts for this repo and check which ones exist
+          ARTIFACTS=$(gh api repos/${{ github.repository }}/actions/artifacts \
+            --jq '.artifacts[].name')
+          echo "Available artifacts: $ARTIFACTS"
+
+          # Set true/false flags based on whether artifact exists
+          echo "$ARTIFACTS" | grep -q "^vpc-tfplan$" \
+            && echo "vpc=true" >> $GITHUB_OUTPUT \
+            || echo "vpc=false" >> $GITHUB_OUTPUT
+
+          echo "$ARTIFACTS" | grep -q "^ecr-tfplan$" \
+            && echo "ecr=true" >> $GITHUB_OUTPUT \
+            || echo "ecr=false" >> $GITHUB_OUTPUT
+
+          echo "$ARTIFACTS" | grep -q "^eks-tfplan$" \
+            && echo "eks=true" >> $GITHUB_OUTPUT \
+            || echo "eks=false" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────
+  # STEP 2: Apply VPC — only if vpc-tfplan artifact exists
+  # ─────────────────────────────────────────────────────────────────
+  apply-vpc:
+    name: "Apply VPC"
+    runs-on: ubuntu-latest
+    needs: detect-plans
+    environment: dev-apply   
+    if: needs.detect-plans.outputs.vpc_planned == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download VPC plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vpc-tfplan                     
+          path: environments/dev/vpc           
+
+      - name: Get AWS credentials from Vault
+        uses: hashicorp/vault-action@v3
         with:
           url: ${{ secrets.VAULT_ADDR }}
           method: jwt
           role: github-terraform
           jwtGithubAudience: "https://github.com/mfasi7863"
           secrets: |
-            aws/creds/terraform-role access_key | AWS_ACCESS_KEY_ID ;
-            aws/creds/terraform-role secret_key | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-role access_key     | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-role secret_key     | AWS_SECRET_ACCESS_KEY ;
             aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
-      - uses: hashicorp/setup-terraform@v3
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.10.0
-      - name: Set target directory and backend key
-        id: target
-        run: |
-          echo "dir=environments/dev/${{ github.event.inputs.component }}" >> $GITHUB_OUTPUT
-          echo "key=dev/${{ github.event.inputs.component }}/terraform.tfstate" >> $GITHUB_OUTPUT
-      - name: Terraform Init
-        working-directory: ${{ steps.target.outputs.dir }}
+          terraform_version: ${{ env.TF_VER }}
+
+      - name: Terraform Init (VPC)
+        working-directory: environments/dev/vpc
         run: |
           terraform init \
-            -backend-config="bucket=terraform-state-devops-ap-south-1" \
-            -backend-config="key=${{ steps.target.outputs.key }}" \
-            -backend-config="region=ap-south-1" \
+            -backend-config="bucket=${{ env.BUCKET }}" \
+            -backend-config="key=dev/vpc/terraform.tfstate" \
+            -backend-config="region=${{ env.REGION }}" \
             -backend-config="use_lockfile=true"
         env:
-          AWS_DEFAULT_REGION: ap-south-1
-      - name: Terraform Apply
-        working-directory: ${{ steps.target.outputs.dir }}
-        run: terraform apply -auto-approve
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
+
+      - name: Terraform Apply (VPC)
+        working-directory: environments/dev/vpc
+        run: terraform apply -auto-approve tfplan  
         env:
-          AWS_DEFAULT_REGION: ap-south-1
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
+
+  # ─────────────────────────────────────────────────────────────────
+  # STEP 3: Apply ECR — only if ecr-tfplan artifact exists
+  # ─────────────────────────────────────────────────────────────────
+  apply-ecr:
+    name: "Apply ECR"
+    runs-on: ubuntu-latest
+    needs: [detect-plans, apply-vpc]
+    environment: dev-apply
+    if: |
+      always() &&
+      needs.detect-plans.outputs.ecr_planned == 'true' &&
+      (needs.apply-vpc.result == 'success' || needs.apply-vpc.result == 'skipped')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download ECR plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ecr-tfplan
+          path: environments/dev/ecr
+
+      - name: Get AWS credentials from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          method: jwt
+          role: github-terraform
+          jwtGithubAudience: "https://github.com/mfasi7863"
+          secrets: |
+            aws/creds/terraform-role access_key     | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-role secret_key     | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VER }}
+
+      - name: Terraform Init (ECR)
+        working-directory: environments/dev/ecr
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.BUCKET }}" \
+            -backend-config="key=dev/ecr/terraform.tfstate" \
+            -backend-config="region=${{ env.REGION }}" \
+            -backend-config="use_lockfile=true"
+        env:
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
+
+      - name: Terraform Apply (ECR)
+        working-directory: environments/dev/ecr
+        run: terraform apply -auto-approve tfplan
+        env:
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
+
+  # ─────────────────────────────────────────────────────────────────
+  # STEP 4: Apply EKS — only if eks-tfplan artifact exists
+  # ─────────────────────────────────────────────────────────────────
+  apply-eks:
+    name: "Apply EKS"
+    runs-on: ubuntu-latest
+    needs: [detect-plans, apply-ecr]
+    environment: dev-apply
+    if: |
+      always() &&
+      needs.detect-plans.outputs.eks_planned == 'true' &&
+      (needs.apply-ecr.result == 'success' || needs.apply-ecr.result == 'skipped')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download EKS plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eks-tfplan
+          path: environments/dev/eks
+
+      - name: Get AWS credentials from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          method: jwt
+          role: github-terraform
+          jwtGithubAudience: "https://github.com/mfasi7863"
+          secrets: |
+            aws/creds/terraform-role access_key     | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-role secret_key     | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VER }}
+
+      - name: Terraform Init (EKS)
+        working-directory: environments/dev/eks
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.BUCKET }}" \
+            -backend-config="key=dev/eks/terraform.tfstate" \
+            -backend-config="region=${{ env.REGION }}" \
+            -backend-config="use_lockfile=true"
+        env:
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
+
+      - name: Terraform Apply (EKS)
+        working-directory: environments/dev/eks
+        run: terraform apply -auto-approve tfplan
+        env:
+          AWS_DEFAULT_REGION: ${{ env.REGION }}
