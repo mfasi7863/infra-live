@@ -3,7 +3,7 @@ set -euo pipefail
 
 AWS_REGION="ap-south-1"
 AWS_ACCOUNT_ID="672296383659"
-SOURCE_IMAGE="fasiuddin007/kubeapp-frontend:latest"
+SOURCE_IMAGE="fasiuddin007/kubeapp-frontend"
 TARGET_REPOSITORY="terraform-aws-ecr"
 TARGET_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${TARGET_REPOSITORY}:latest"
 
