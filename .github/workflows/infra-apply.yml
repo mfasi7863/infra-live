@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       component:
-        description: "Component to apply"
+        description: "Component for apply"
         required: true
         type: choice
         options:
