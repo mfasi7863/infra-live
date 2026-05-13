@@ -27,6 +27,7 @@ jobs:
           url: ${{ secrets.VAULT_ADDR }}
           method: jwt
           role: github-terraform
+          jwtGithubAudience: "https://github.com/mfasi7863"
           secrets: |
             aws/creds/terraform-role access_key | AWS_ACCESS_KEY_ID ;
             aws/creds/terraform-role secret_key | AWS_SECRET_ACCESS_KEY ;
