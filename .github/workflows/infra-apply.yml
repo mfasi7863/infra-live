@@ -34,7 +34,7 @@ jobs:
             aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.8
+          terraform_version: 1.10.0
       - name: Set target directory and backend key
         id: target
         run: |
