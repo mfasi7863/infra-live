@@ -28,9 +28,9 @@ jobs:
           method: jwt
           role: github-terraform
           secrets: |
-            aws/creds/terraform-infra access_key | AWS_ACCESS_KEY_ID ;
-            aws/creds/terraform-infra secret_key | AWS_SECRET_ACCESS_KEY ;
-            aws/creds/terraform-infra security_token | AWS_SESSION_TOKEN
+            aws/creds/terraform-role access_key | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-role secret_key | AWS_SECRET_ACCESS_KEY ;
+            aws/creds/terraform-role security_token | AWS_SESSION_TOKEN
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.8
