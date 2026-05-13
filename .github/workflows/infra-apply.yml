@@ -10,12 +10,13 @@ permissions:
 env:
   REGION: ap-south-1
   BUCKET: terraform-state-devops-ap-south-1
-  TF_VER: 1.10.5   
+  TF_VER: 1.10.5
 
 jobs:
 
   # ─────────────────────────────────────────────────────────────────
-  # STEP 1: Check which plan artifacts exist from infra-plan
+  # STEP 1: Find the latest infra-plan run and check which
+  # artifacts were produced (vpc / ecr / eks)
   # ─────────────────────────────────────────────────────────────────
   detect-plans:
     name: "Detect Available Plan Artifacts"
@@ -24,18 +25,27 @@ jobs:
       vpc_planned: ${{ steps.check.outputs.vpc }}
       ecr_planned: ${{ steps.check.outputs.ecr }}
       eks_planned: ${{ steps.check.outputs.eks }}
+      plan_run_id: ${{ steps.check.outputs.run_id }}
     steps:
-      - name: Check which plan artifacts exist
+      - name: Find latest infra-plan run and check artifacts
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # List artifacts for this repo and check which ones exist
-          ARTIFACTS=$(gh api repos/${{ github.repository }}/actions/artifacts \
-            --jq '.artifacts[].name')
-          echo "Available artifacts: $ARTIFACTS"
+          # Get the latest successful infra-plan run ID
+          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/infra-plan.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].id')
 
-          # Set true/false flags based on whether artifact exists
+          echo "Latest infra-plan run ID: $RUN_ID"
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+          # List all artifacts from that specific run
+          ARTIFACTS=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[].name')
+
+          echo "Artifacts found: $ARTIFACTS"
+
+          # Set true/false flags for each component
           echo "$ARTIFACTS" | grep -q "^vpc-tfplan$" \
             && echo "vpc=true" >> $GITHUB_OUTPUT \
             || echo "vpc=false" >> $GITHUB_OUTPUT
@@ -49,23 +59,26 @@ jobs:
             || echo "eks=false" >> $GITHUB_OUTPUT
 
   # ─────────────────────────────────────────────────────────────────
-  # STEP 2: Apply VPC — only if vpc-tfplan artifact exists
+  # STEP 2: Apply VPC
+  # Downloads the plan artifact from infra-plan and applies it
   # ─────────────────────────────────────────────────────────────────
   apply-vpc:
     name: "Apply VPC"
     runs-on: ubuntu-latest
     needs: detect-plans
-    environment: dev-apply   
+    environment: dev-apply
     if: needs.detect-plans.outputs.vpc_planned == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download VPC plan artifact
+      - name: Download VPC plan artifact from infra-plan run
         uses: actions/download-artifact@v4
         with:
-          name: vpc-tfplan                     
-          path: environments/dev/vpc           
+          name: vpc-tfplan
+          path: environments/dev/vpc
+          run-id: ${{ needs.detect-plans.outputs.plan_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get AWS credentials from Vault
         uses: hashicorp/vault-action@v3
@@ -97,12 +110,12 @@ jobs:
 
       - name: Terraform Apply (VPC)
         working-directory: environments/dev/vpc
-        run: terraform apply -auto-approve tfplan  
+        run: terraform apply -auto-approve tfplan
         env:
           AWS_DEFAULT_REGION: ${{ env.REGION }}
 
   # ─────────────────────────────────────────────────────────────────
-  # STEP 3: Apply ECR — only if ecr-tfplan artifact exists
+  # STEP 3: Apply ECR
   # ─────────────────────────────────────────────────────────────────
   apply-ecr:
     name: "Apply ECR"
@@ -117,11 +130,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download ECR plan artifact
+      - name: Download ECR plan artifact from infra-plan run
         uses: actions/download-artifact@v4
         with:
           name: ecr-tfplan
           path: environments/dev/ecr
+          run-id: ${{ needs.detect-plans.outputs.plan_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get AWS credentials from Vault
         uses: hashicorp/vault-action@v3
@@ -158,7 +173,7 @@ jobs:
           AWS_DEFAULT_REGION: ${{ env.REGION }}
 
   # ─────────────────────────────────────────────────────────────────
-  # STEP 4: Apply EKS — only if eks-tfplan artifact exists
+  # STEP 4: Apply EKS
   # ─────────────────────────────────────────────────────────────────
   apply-eks:
     name: "Apply EKS"
@@ -173,11 +188,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download EKS plan artifact
+      - name: Download EKS plan artifact from infra-plan run
         uses: actions/download-artifact@v4
         with:
           name: eks-tfplan
           path: environments/dev/eks
+          run-id: ${{ needs.detect-plans.outputs.plan_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get AWS credentials from Vault
         uses: hashicorp/vault-action@v3
